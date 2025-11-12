@@ -1,0 +1,156 @@
+/* Login.css */
+
+/* Reset เบื้องต้น */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body, html, #root {
+  height: 100%;
+}
+
+/* Container หลัก */
+.login-container {
+  display: flex;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0f1c2f, #1a2a45);
+  color: #fff;
+}
+
+/* ซ้าย: โลโก้ + ข้อมูล */
+.login-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 3rem;
+  background: linear-gradient(135deg, #1a2a45, #0f1c2f);
+  text-align: center;
+}
+
+.login-left .login-logo {
+  width: 120px;
+  margin-bottom: 2rem;
+  filter: drop-shadow(0 0 10px rgba(255,255,255,0.7));
+}
+
+.login-left h1 {
+  font-size: 2.2rem;
+  margin-bottom: 1rem;
+  color: #ffd700; /* สีทองเหลืองทหาร */
+  text-shadow: 0 2px 6px rgba(0,0,0,0.5);
+}
+
+.login-left p {
+  font-size: 1.1rem;
+  color: #ccc;
+}
+
+/* ขวา: Form */
+.login-right {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 3rem;
+  background: rgba(15,28,47,0.95);
+  backdrop-filter: blur(8px);
+}
+
+.login-form {
+  width: 100%;
+  max-width: 380px;
+  background: #1f2a3a;
+  padding: 2.5rem;
+  border-radius: 12px;
+  box-shadow: 0 0 30px rgba(0,0,0,0.5);
+}
+
+.login-form h2 {
+  margin-bottom: 1.5rem;
+  color: #ffd700;
+  text-align: center;
+}
+
+.login-form label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-weight: 600;
+  color: #eee;
+}
+
+.login-form input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.2rem;
+  border: none;
+  border-radius: 8px;
+  background: #2b3a50;
+  color: #fff;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.login-form input:focus {
+  outline: none;
+  background: #3c4a6a;
+  box-shadow: 0 0 8px #ffd700;
+}
+
+.login-form button {
+  width: 100%;
+  padding: 0.9rem;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #1a2a45;
+  background: #ffd700;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.login-form button:hover {
+  background: #e6c200;
+  transform: translateY(-2px);
+}
+
+.login-form button:disabled {
+  background: #aaa;
+  cursor: not-allowed;
+}
+
+.login-form .error {
+  background: #ff4d4f;
+  color: #fff;
+  padding: 0.7rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 6px;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* Responsive สำหรับมือถือ */
+@media (max-width: 900px) {
+  .login-container {
+    flex-direction: column;
+  }
+
+  .login-left, .login-right {
+    flex: unset;
+    width: 100%;
+    padding: 2rem;
+  }
+
+  .login-left {
+    order: 2;
+  }
+
+  .login-right {
+    order: 1;
+  }
+}
