@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./Backend
+    container_name: backend_service
+    restart: always
+    env_file:
+      - ./Backend/.env
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    volumes:
+      - ./Backend:/usr/src/app
+      - /usr/src/app/node_modules
+
+  # frontend:
+  #   build: ./my-vite-app
+  #   container_name: vite_frontend
+  #   restart: always
+  #   ports:
+  #     - "5173:5173"
+  #   depends_on:
+  #     - backend
+  #   volumes:
+  #     - ./my-vite-app:/app
+  #     - /app/node_modules
+
+
+  db:
+    image: mysql:8.0
+    container_name: mysql_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root1234
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: myuser
+      MYSQL_PASSWORD: mypass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: phpmyadmin
+    restart: always
+    environment:
+      PMA_HOST: db
+      PMA_USER: myuser
+      PMA_PASSWORD: mypass
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+
+volumes:
+  mysql_data:
