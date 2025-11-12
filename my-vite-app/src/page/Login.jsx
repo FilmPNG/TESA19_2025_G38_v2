@@ -49,6 +49,7 @@ const Login = ({ onLogin }) => { // <-- รับ props onLogin
         />
         <h1>ระบบตรวจจับโดรนทางทหาร</h1>
         <p>เข้าสู่ระบบเพื่อจัดการโดรนและตรวจจับภัยคุกคาม</p>
+        <p>หน่วยงานสวนและบ้าน 2025</p>
       </div>
       <div className="login-right">
         <form className="login-form" onSubmit={handleLogin}>

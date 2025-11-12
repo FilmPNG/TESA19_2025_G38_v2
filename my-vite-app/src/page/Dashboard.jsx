@@ -30,7 +30,7 @@ const DroneDetectionDashboard = () => {
       });
 
       // ไม่ว่า response จะ ok หรือไม่ ก็เคลียร์ localStorage
-      localStorage.removeItem('employee');
+      localStorage.removeItem('isLoggedIn');
       localStorage.removeItem('token');
 
       // redirect ไปหน้า login
@@ -351,7 +351,7 @@ const DroneDetectionDashboard = () => {
     const markers = markersRef.current[type];
     const newDroneIds = new Set(drones.map(d => d.id));
     
-    // 1. ตรวจสอบ Marker ที่ควรถูกลบออก (Marker ที่ไม่อยู่ในรายการ drones แล้ว)
+    // 1. ตรวจสอบ Marker ที่ควรถูกลบออก
     const markersToRemove = [];
     markers.forEach((marker, droneId) => {
         if (!newDroneIds.has(droneId)) {
@@ -378,7 +378,8 @@ const DroneDetectionDashboard = () => {
             
             const color = type === 'enemy' ? '#ef4444' : '#22c55e';
             const bgColor = type === 'enemy' ? 'rgba(239, 68, 68, 0.9)' : 'rgba(34, 197, 94, 0.9)';
-            const icon = type === 'enemy' ? '🚨' : '✅';
+            const badgeIcon = type === 'enemy' ? '🚨' : '✅';
+            const mainIcon = type === 'enemy' ? '🛸' : '✈️';
 
             el.style.cssText = `
                 width: 50px;
@@ -389,64 +390,158 @@ const DroneDetectionDashboard = () => {
                 justify-content: center;
             `;
 
+            // 🚩 [แก้ไข] โค้ด HTML ทั้งหมดนี้คือฉบับที่ถูกต้อง
             el.innerHTML = `
-                 <div class="marker-content" style="
-                     background: ${bgColor};
-                     width: 45px;
-                     height: 45px;
-                     border-radius: 50%;
-                     display: flex;
-                     align-items: center;
-                     justify-content: center;
-                     font-size: 24px;
-                     border: 3px solid white;
-                     box-shadow: 0 0 20px ${color}, 0 4px 10px rgba(0,0,0,0.5);
-                     position: relative;
-                     transition: transform 0.2s ease;
-                 ">
-                   <span style="
-                     display: block;
-                     line-height: 1;
-                     user-select: none;
-                   ">🚁</span>
-                   <div style="
-                     position: absolute;
-                     top: -5px;
-                     right: -5px;
-                     background: ${color};
-                     width: 18px;
-                     height: 18px;
-                     border-radius: 50%;
-                     display: flex;
-                     align-items: center;
-                     justify-content: center;
-                     font-size: 10px;
-                     border: 2px solid white;
-                     box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-          _20u...
-                     <span style="display: block; line-height: 1;">${icon}</span>
-                   </div>
-                   <div style="
-                     position: absolute;
-                     bottom: -5px;
-                     left: -5px;
-                     background: white;
-                     color: ${color};
-                     width: 18px;
-                     height: 18px;
-                     border-radius: 50%;
-                     display: flex;
-                     align-items: center;
-                     justify-content: center;
-                     font-size: 11px;
-                     font-weight: bold;
-                     border: 2px solid ${color};
-                     box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-                   ">
-                     ${drone.size === 'small' ? 'S' : drone.size === 'medium' ? 'M' : 'L'}
-                   </div>
-                 </div>
-            `;
+                 <div class="marker-wrapper" style="
+                     position: relative;
+                     width: 60px;
+                     height: 60px;
+                     display: flex;
+                     align-items: center;
+                     justify-content: center;
+                 ">
+                   <!-- Animated scanning circles -->
+                   <div class="scan-circle scan-circle-1" style="
+                     position: absolute;
+                     width: 60px;
+                     height: 60px;
+                     border: 2px solid ${color};
+                     border-radius: 50%;
+                     opacity: 0;
+                     animation: scan 2s ease-out infinite;
+                   "></div>
+                   <div class="scan-circle scan-circle-2" style="
+                     position: absolute;
+                     width: 60px;
+                     height: 60px;
+                     border: 2px solid ${color};
+                     border-radius: 50%;
+                     opacity: 0;
+                     animation: scan 2s ease-out infinite 0.7s;
+                   "></div>
+                   <div class="scan-circle scan-circle-3" style="
+                     position: absolute;
+                     width: 60px;
+                     height: 60px;
+                     border: 2px solid ${color};
+                     border-radius: 50%;
+                     opacity: 0;
+                     animation: scan 2s ease-out infinite 1.4s;
+                   "></div>
+                   
+                   <!-- Rotating border -->
+                   <div class="rotating-border" style="
+                     position: absolute;
+                     width: 54px;
+                     height: 54px;
+                     border-radius: 50%;
+                     border: 3px solid transparent;
+                     border-top-color: ${color};
+                     border-right-color: ${color};
+                     animation: rotate 3s linear infinite;
+                   "></div>
+                   
+                   <!-- Main marker content -->
+                   <div class="marker-content" style="
+                     background: linear-gradient(135deg, ${bgColor} 0%, ${type === 'enemy' ? 'rgba(220, 38, 38, 0.95)' : 'rgba(22, 163, 74, 0.95)'} 100%);
+                     width: 48px;
+                     height: 48px;
+                     border-radius: 50%;
+                     display: flex;
+                     align-items: center;
+                     justify-content: center;
+                     border: 3px solid white;
+                     box-shadow: 0 0 20px ${color}, 0 4px 15px rgba(0,0,0,0.6), inset 0 2px 10px rgba(255,255,255,0.2);
+                     position: relative;
+                     transition: all 0.3s ease;
+                     z-index: 2;
+                   ">
+                     <!-- Drone SVG Icon -->
+                     <svg width="32" height="32" viewBox="0 0 64 64" fill="white" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));">
+                       ${type === 'enemy' 
+                         ? `
+                         <!-- Enemy Drone (Quadcopter with X shape) -->
+                         <g>
+                           <!-- Center body -->
+                           <circle cx="32" cy="32" r="6" fill="white"/>
+                           <circle cx="32" cy="32" r="4" fill="${color}"/>
+                           
+                           <!-- Arms (X pattern) -->
+                           <line x1="32" y1="32" x2="18" y2="18" stroke="white" stroke-width="3" stroke-linecap="round"/>
+                           <line x1="32" y1="32" x2="46" y2="18" stroke="white" stroke-width="3" stroke-linecap="round"/>
+                           <line x1="32" y1="32" x2="18" y2="46" stroke="white" stroke-width="3" stroke-linecap="round"/>
+                           <line x1="32" y1="32" x2="46" y2="46" stroke="white" stroke-width="3" stroke-linecap="round"/>
+                           
+                           <!-- Propellers -->
+                           <circle cx="18" cy="18" r="5" fill="white" opacity="0.8"/>
+                           <circle cx="46" cy="18" r="5" fill="white" opacity="0.8"/>
+                           <circle cx="18" cy="46" r="5" fill="white" opacity="0.8"/>
+                           <circle cx="46" cy="46" r="5" fill="white" opacity="0.8"/>
+                           
+                           <!-- Propeller blades -->
+                           <ellipse cx="18" cy="18" rx="8" ry="2" fill="white" opacity="0.6" transform="rotate(45 18 18)"/>
+                           <ellipse cx="46" cy="18" rx="8" ry="2" fill="white" opacity="0.6" transform="rotate(-45 46 18)"/>
+                           <ellipse cx="18" cy="46" rx="8" ry="2" fill="white" opacity="0.6" transform="rotate(-45 18 46)"/>
+                           <ellipse cx="46" cy="46" rx="8" ry="2" fill="white" opacity="0.6" transform="rotate(45 46 46)"/>
+                         </g>
+                         `
+                         : `
+                         <!-- Friendly Drone (Fixed-wing) -->
+                         <g>
+                           <!-- Fuselage -->
+                           <ellipse cx="32" cy="32" rx="4" ry="12" fill="white"/>
+                           
+                           <!-- Wings -->
+                           <ellipse cx="32" cy="32" rx="24" ry="6" fill="white" opacity="0.9"/>
+                           
+                           <!-- Tail -->
+                           <path d="M 32 44 L 28 54 L 32 52 L 36 54 Z" fill="white" opacity="0.9"/>
+                           
+                           <!-- Cockpit -->
+                           <circle cx="32" cy="26" r="3" fill="${color}" opacity="0.8"/>
+                           
+                           <!-- Wing details -->
+                           <line x1="20" y1="32" x2="44" y2="32" stroke="${color}" stroke-width="1" opacity="0.5"/>
+                         </g>
+                         `}
+                     </svg>
+                     
+                     <!-- Alert Badge -->
+                     <div style="
+                       position: absolute;
+                       top: -10px;
+                       right: -10px;
+                       background: ${type === 'enemy' ? '#dc2626' : '#16a34a'};
+                       width: 24px;
+                       height: 24px;
+                       border-radius: 50%;
+                       display: flex;
+                       align-items: center;
+                       justify-content: center;
+                       border: 3px solid white;
+                       box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+                       font-weight: bold;
+                       font-size: 12px;
+                       color: white;
+                       animation: pulse-badge 2s ease-in-out infinite;
+                     ">
+                       ${type === 'enemy' ? '!' : '✓'}
+                     </div>
+                     
+                     
+                     
+                     <!-- Glow effect -->
+                     <div style="
+                       position: absolute;
+                       width: 300%;
+                       height: 300%;
+                       border-radius: 50%;
+                       background: radial-gradient(circle, ${color}40 0%, transparent 70%);
+                       animation: glow-pulse 2s ease-in-out infinite;
+                     "></div>
+                   </div>
+                 </div>
+            `;
 
             const marker = new window.mapboxgl.Marker({
                 element: el,
@@ -455,6 +550,7 @@ const DroneDetectionDashboard = () => {
                 .setLngLat([drone.lng, drone.lat])
                 .addTo(map.current);
 
+            // ... (Event Listeners เหมือนเดิม)
             el.addEventListener('click', (e) => {
                 e.stopPropagation();
                 setSelectedDrone({ ...drone });
@@ -462,32 +558,22 @@ const DroneDetectionDashboard = () => {
                     center: [drone.lng, drone.lat],
                     zoom: 15,
                     duration: 1000
-                });
-            });
+            	  });
+        	  });
 
-            const markerContent = el.querySelector('.marker-content');
-            el.addEventListener('mouseenter', () => {
-                if (markerContent) markerContent.style.transform = 'scale(1.2)';
-            });
+        	  const markerContent = el.querySelector('.marker-content');
+        	  el.addEventListener('mouseenter', () => {
+        		  if (markerContent) markerContent.style.transform = 'scale(1.2)';
+        	  });
 
-            el.addEventListener('mouseleave', () => {
-                if (markerContent) markerContent.style.transform = 'scale(1)';
-            });
-            
-            markers.set(drone.id, marker);
-        }
-    });
-
-    // 🚩 ลบส่วนนี้ออก เพราะเราไม่ต้องการให้ Map ขยับทุกครั้งที่มีการอัปเดตข้อมูล
-    // (การขยับ Map จะเกิดขึ้นเมื่อคลิกที่ Card เท่านั้น)
-    /*
-    if (drones.length > 0 && drones.length === 1) {
-      // ...
-    } else if (drones.length > 1) {
-      // ...
-    }
-    */
-  };
+        	  el.addEventListener('mouseleave', () => {
+        		  if (markerContent) markerContent.style.transform = 'scale(1)';
+        	  });
+        	  
+        	  markers.set(drone.id, marker);
+    	  }
+    });
+  };
 
   const getStatusColor = (status) => {
     switch (status) {

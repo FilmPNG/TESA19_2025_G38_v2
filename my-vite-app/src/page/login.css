@@ -33,7 +33,7 @@ body, html, #root {
 }
 
 .login-left .login-logo {
-  width: 120px;
+  width: 250px;
   margin-bottom: 2rem;
   filter: drop-shadow(0 0 10px rgba(255,255,255,0.7));
 }
