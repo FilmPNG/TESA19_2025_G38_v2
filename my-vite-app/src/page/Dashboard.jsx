@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { AlertTriangle, Radio, Shield, X, Camera, Maximize2 } from 'lucide-react';
-import { useNavigate } from "react-router-dom"; // <-- ต้อง import
+import { AlertTriangle, Radio, Shield, X, Camera, Maximize2, Layers } from 'lucide-react';
+import { useNavigate } from "react-router-dom";
 
 const DroneDetectionDashboard = () => {
   const [enemyDrones, setEnemyDrones] = useState([]);
@@ -10,8 +10,7 @@ const DroneDetectionDashboard = () => {
   const [connectionStatus, setConnectionStatus] = useState({ enemy: 'disconnected', friendly: 'disconnected' });
   const [mapLoaded, setMapLoaded] = useState(false);
   const [lastUpdate, setLastUpdate] = useState({ enemy: null, friendly: null });
-  // 🚩 1. ลบ state นี้ออก
-  // const [pendingDrones, setPendingDrones] = useState({ enemy: [], friendly: [] });
+  const [is3D, setIs3D] = useState(false); // State สำหรับมุมมอง 3D
   const navigate = useNavigate();
   const [trackedEnemyIds, setTrackedEnemyIds] = useState([]);
 
@@ -180,14 +179,63 @@ const DroneDetectionDashboard = () => {
     }
   }, [friendlyDrones, mapLoaded]); // ทำงานทุกครั้งที่ friendlyDrones หรือ mapLoaded เปลี่ยน
 
+  // Effect สำหรับจัดการมุมมอง 3D
+  useEffect(() => {
+    if (mapLoaded && map.current) {
+      if (is3D) {
+        // เพิ่ม source สำหรับข้อมูลความสูง (DEM) ถ้ายังไม่มี
+        if (!map.current.getSource('mapbox-dem')) {
+          map.current.addSource('mapbox-dem', {
+            'type': 'raster-dem',
+            'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+            'tileSize': 512,
+            'maxzoom': 14
+          });
+        }
+        // ตั้งค่าภูมิประเทศ (terrain)
+        map.current.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+        // ปรับมุมมองให้เอียง
+        map.current.easeTo({ pitch: 60, duration: 1000 });
+      } else {
+        // ปรับมุมมองกลับเป็น 2D
+        map.current.easeTo({ pitch: 0, duration: 1000 });
+        // นำ terrain ออก (รอให้ animation จบก่อน)
+        const transitionEndHandler = () => {
+          if (map.current.getPitch() === 0) {
+            map.current.setTerrain(null);
+          }
+          map.current.off('moveend', transitionEndHandler);
+        };
+        map.current.on('moveend', transitionEndHandler);
+      }
+    }
+  }, [is3D, mapLoaded]);
+
+  // [แก้ไข] Effect สำหรับอัปเดตข้อมูลใน Card เมื่อโดรนที่เลือกมีการอัปเดต
+  useEffect(() => {
+    if (selectedDrone) {
+      const allDrones = [...enemyDrones, ...friendlyDrones];
+      const updatedDrone = allDrones.find(d => d.id === selectedDrone.id);
+
+      if (updatedDrone) {
+        // ตรวจสอบว่าข้อมูลมีการเปลี่ยนแปลงจริงก่อน set state เพื่อป้องกัน re-render ที่ไม่จำเป็น
+        if (JSON.stringify(updatedDrone) !== JSON.stringify(selectedDrone)) {
+          console.log(`🔄 Updating selected drone card for ID: ${selectedDrone.id}`);
+          setSelectedDrone(updatedDrone);
+        }
+      }
+    }
+    // Dependency array: ทำงานเมื่อรายการโดรนหรือโดรนที่เลือกเปลี่ยนไป
+  }, [enemyDrones, friendlyDrones, selectedDrone?.id]);
+
   const initializeMap = () => {
     if (!window.mapboxgl || map.current) return;
 
-    window.mapboxgl.accessToken = 'pk.eyJ1IjoiZmlsbXBuZyIsImEiOiJjbWh1cTM4dWkwMmZqMnJwdndtc3NyaGxhIn0.oHO3kOudwG_iRm7XoeOffA';
+    window.mapboxgl.accessToken = 'pk.eyJ1IjoiY2hhdGNoYWxlcm0iLCJhIjoiY21nZnpiYzU3MGRzdTJrczlkd3RxamN4YyJ9.k288gnCNLdLgczawiB79gQ';
 
     map.current = new window.mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12', // เปลี่ยนเป็นภาพถ่ายดาวเทียม
       center: [100.5018, 13.7563],
       zoom: 13
     });
@@ -308,6 +356,15 @@ const DroneDetectionDashboard = () => {
       // อัพเดทหรือเพิ่มโดรน
       const filtered = prevDrones.filter(d => d.obj_id !== drone.obj_id);
       return [...filtered, drone];
+    });
+
+    // 🚩 [แก้ไข] ตรวจสอบและเพิ่ม drone_id ใหม่เข้าไปใน state ที่ใช้ subscribe
+    setTrackedEnemyIds(prevIds => {
+      if (!prevIds.includes(data.drone_id)) {
+        console.log(`✨ New drone_id found, adding to subscription list: ${data.drone_id}`);
+        return [...prevIds, data.drone_id];
+      }
+      return prevIds;
     });
   };
 
@@ -850,6 +907,37 @@ const DroneDetectionDashboard = () => {
           		margin: '0 auto 1rem'
           	  }} />
           	  <div>กำลังโหลดแผนที่...</div>
+          	</div>
+          )}
+
+          {/* 3D Toggle Button */}
+          {mapLoaded && (
+          	<div style={{
+          	  position: 'absolute',
+          	  top: '90px',
+          	  right: '10px',
+          	  zIndex: 1,
+          	}}>
+          	  <button
+          		onClick={() => setIs3D(!is3D)}
+          		style={{
+          		  background: `rgba(21, 27, 61, ${is3D ? '0.9' : '0.7'})`,
+          		  color: '#fff',
+          		  border: `1px solid ${is3D ? '#3b82f6' : 'rgba(255,255,255,0.3)'}`,
+          		  padding: '0.5rem',
+          		  borderRadius: '8px',
+          		  cursor: 'pointer',
+          		  display: 'flex',
+          		  alignItems: 'center',
+          		  gap: '0.5rem',
+          		  boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          		  backdropFilter: 'blur(5px)',
+          		  transition: 'all 0.2s ease'
+          		}}
+          	  >
+          		<Layers size={18} color={is3D ? '#3b82f6' : '#fff'} />
+          		<span style={{ fontWeight: 'bold' }}>{is3D ? '3D' : '2D'}</span>
+          	  </button>
           	</div>
           )}
 
