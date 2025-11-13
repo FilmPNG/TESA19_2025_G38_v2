@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { AlertTriangle, Radio, Shield, X, Camera, Maximize2, Layers } from 'lucide-react';
+import { AlertTriangle, History, Shield, X, Camera, Maximize2, Layers, Wifi, List, ChevronUp, ChevronDown } from 'lucide-react';
 import { useNavigate } from "react-router-dom";
 
 const DroneDetectionDashboard = () => {
@@ -10,8 +10,12 @@ const DroneDetectionDashboard = () => {
   const [connectionStatus, setConnectionStatus] = useState({ enemy: 'disconnected', friendly: 'disconnected' });
   const [mapLoaded, setMapLoaded] = useState(false);
   const [lastUpdate, setLastUpdate] = useState({ enemy: null, friendly: null });
+  const [history, setHistory] = useState([]); // 🚩 State ใหม่สำหรับเก็บประวัติ
   const [is3D, setIs3D] = useState(false); // State สำหรับมุมมอง 3D
   const navigate = useNavigate();
+  const [liveFilter, setLiveFilter] = useState('all'); // 'all', 'enemy', 'friendly'
+  const [historyFilter, setHistoryFilter] = useState('all'); // 'all', 'enemy', 'friendly'
+  const [sectionsCollapsed, setSectionsCollapsed] = useState({ enemy: false, friendly: false, history: false });
   const [trackedEnemyIds, setTrackedEnemyIds] = useState([]);
 
   const mapContainer = useRef(null);
@@ -166,18 +170,31 @@ const DroneDetectionDashboard = () => {
   // 🚩 5. เพิ่ม Effect ใหม่: คอย Sync state 'enemyDrones' ไปยัง Map
   useEffect(() => {
     if (mapLoaded && map.current) {
-      console.log('🗺️ Map sync: Updating enemy markers from state', enemyDrones.length);
-      updateMarkers(enemyDrones, 'enemy');
+      // ถ้ามีโดรนถูกเลือกจาก history ให้แสดงแค่ตัวนั้น
+      if (selectedDrone) {
+        const markersToShow = selectedDrone.type === 'enemy' ? [selectedDrone] : [];
+        updateMarkers(markersToShow, 'enemy');
+      } else {
+        // ถ้าไม่มี ให้แสดงตาม live filter
+        const showEnemy = liveFilter === 'all' || liveFilter === 'enemy';
+        updateMarkers(showEnemy ? enemyDrones : [], 'enemy');
+      }
     }
-  }, [enemyDrones, mapLoaded]); // ทำงานทุกครั้งที่ enemyDrones หรือ mapLoaded เปลี่ยน
+  }, [enemyDrones, mapLoaded, liveFilter, selectedDrone]);
 
   // 🚩 5. เพิ่ม Effect ใหม่: คอย Sync state 'friendlyDrones' ไปยัง Map
   useEffect(() => {
     if (mapLoaded && map.current) {
-      console.log('🗺️ Map sync: Updating friendly markers from state', friendlyDrones.length);
-      updateMarkers(friendlyDrones, 'friendly');
+      // ถ้ามีโดรนถูกเลือกจาก history ให้แสดงแค่ตัวนั้น
+      if (selectedDrone) {
+        const markersToShow = selectedDrone.type === 'friendly' ? [selectedDrone] : [];
+        updateMarkers(markersToShow, 'friendly');
+      } else {
+        const showFriendly = liveFilter === 'all' || liveFilter === 'friendly';
+        updateMarkers(showFriendly ? friendlyDrones : [], 'friendly');
+      }
     }
-  }, [friendlyDrones, mapLoaded]); // ทำงานทุกครั้งที่ friendlyDrones หรือ mapLoaded เปลี่ยน
+  }, [friendlyDrones, mapLoaded, liveFilter, selectedDrone]);
 
   // Effect สำหรับจัดการมุมมอง 3D
   useEffect(() => {
@@ -350,6 +367,9 @@ const DroneDetectionDashboard = () => {
       }
     };
 
+    // 🚩 เพิ่มข้อมูลเข้า History (เก็บสูงสุด 50 รายการล่าสุด)
+    setHistory(prevHistory => [drone, ...prevHistory].slice(0, 50));
+
     // 🚩 อัปเดต State โดยใช้ functional update form
     // 🚩 (ลบ if(mapLoaded) และ if(!mapLoaded) ทิ้ง)
     setEnemyDrones(prevDrones => {
@@ -391,13 +411,16 @@ const DroneDetectionDashboard = () => {
       cam_id: data.cam_id
     }));
 
+    // 🚩 เพิ่มข้อมูลเข้า History (เก็บสูงสุด 50 รายการล่าสุด)
+    setHistory(prevHistory => [...drones, ...prevHistory].slice(0, 50));
+
     // 🚩 อัปเดต State เท่านั้น
     setFriendlyDrones(drones);
 
     // 🚩 (ลบ if(mapLoaded) และ else (setPendingDrones) ทิ้ง)
   };
 
-  const updateMarkers = (drones, type) => {
+  const updateMarkers = (drones, type, append = false) => {
     if (!window.mapboxgl || !map.current) {
         console.log('⚠️ Mapbox not ready');
         return;
@@ -409,14 +432,16 @@ const DroneDetectionDashboard = () => {
     const newDroneIds = new Set(drones.map(d => d.id));
     
     // 1. ตรวจสอบ Marker ที่ควรถูกลบออก
-    const markersToRemove = [];
-    markers.forEach((marker, droneId) => {
-        if (!newDroneIds.has(droneId)) {
-            marker.remove();
-            markersToRemove.push(droneId);
-        }
-    });
-    markersToRemove.forEach(droneId => markers.delete(droneId));
+    if (!append) {
+      const markersToRemove = [];
+      markers.forEach((marker, droneId) => {
+          if (!newDroneIds.has(droneId)) {
+              marker.remove();
+              markersToRemove.push(droneId);
+          }
+      });
+      markersToRemove.forEach(droneId => markers.delete(droneId));
+    }
 
 
     // 2. อัปเดตตำแหน่งของ Marker เดิม หรือสร้าง Marker ใหม่
@@ -632,6 +657,12 @@ const DroneDetectionDashboard = () => {
     });
   };
 
+  const filteredHistory = history.filter(drone => {
+    if (historyFilter === 'all') return true;
+    return drone.type === historyFilter;
+  });
+
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'connected': return '#00ff00';
@@ -694,6 +725,50 @@ const DroneDetectionDashboard = () => {
           </div>
         </div>
 
+        {/* Live Filter Toggles */}
+        <div style={{
+        	display: 'flex',
+        	background: 'rgba(0,0,0,0.2)',
+        	padding: '0.3rem',
+        	borderRadius: '8px',
+        	gap: '0.3rem',
+        	minWidth: '400px'
+        }}>
+        	{[
+        		{ key: 'all', label: 'ทั้งหมด', icon: <List size={16} /> },
+        		{ key: 'enemy', label: 'ไม่ทราบที่มา', icon: <AlertTriangle size={16} /> },
+        		{ key: 'friendly', label: 'ฝ่ายเรา', icon: <Shield size={16} /> }
+        	].map(item => (
+        		<button
+        			key={item.key}
+        			onClick={() => {
+        			  setLiveFilter(item.key);
+        			  setSelectedDrone(null); // เคลียร์โดรนที่เลือกจาก history เมื่อเปลี่ยน filter
+        			}}
+        			style={{
+        				flex: 1,
+        				background: liveFilter === item.key
+        					? (item.key === 'enemy' ? '#ef4444' : item.key === 'friendly' ? '#22c55e' : '#3b82f6')
+        					: 'transparent',
+        				color: '#fff',
+        				border: 'none',
+        				padding: '0.5rem 1rem',
+        				borderRadius: '6px',
+        				cursor: 'pointer',
+        				fontWeight: 'bold',
+        				display: 'flex',
+        				alignItems: 'center', 
+        				whiteSpace: 'nowrap', // เพิ่มเพื่อให้ข้อความไม่ขึ้นบรรทัดใหม่
+        				justifyContent: 'center',
+        				gap: '0.5rem',
+        				transition: 'background 0.2s'
+        			}}
+        		>
+        			{item.icon} {item.label}
+        		</button>
+        	))}
+        </div>
+
         <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <div style={{
@@ -750,132 +825,264 @@ const DroneDetectionDashboard = () => {
           padding: '1rem',
           overflowY: 'auto',
           boxShadow: '4px 0 6px rgba(0,0,0,0.3)'
-        }}>
-          {/* Enemy Drones */}
-          <div style={{ marginBottom: '2rem' }}>
-            <div style={{
+        }}>	
+        	<>
+        		{/* Enemy Drones */}
+        		{(liveFilter === 'all' || liveFilter === 'enemy') && (
+        		<div style={{ marginBottom: '1.5rem' }}>
+        		  <div 
+					onClick={() => setSectionsCollapsed(prev => ({ ...prev, enemy: !prev.enemy }))}
+					style={{
             	display: 'flex',
             	alignItems: 'center',
             	justifyContent: 'space-between',
-            	marginBottom: '1rem',
+            	marginBottom: sectionsCollapsed.enemy ? '0' : '1rem',
             	padding: '0.75rem',
             	background: 'rgba(239, 68, 68, 0.2)',
             	borderRadius: '8px',
-            	border: '1px solid rgba(239, 68, 68, 0.5)'
-            }}>
-            	<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            	border: '1px solid rgba(239, 68, 68, 0.5)',
+					cursor: 'pointer',
+					transition: 'margin-bottom 0.3s ease'
+        		  }}>
+        			<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             	  <AlertTriangle size={20} color="#ef4444" />
-            	  <h2 style={{ margin: 0, fontSize: '1.1rem' }}>
+        			  <h2 style={{ margin: 0, fontSize: '1.1rem' }}>
             		โดรนไม่ทราบที่มา
             	  </h2>
             	</div>
-            	<span style={{
-            	  background: 'rgba(239, 68, 68, 0.3)',
-            	  padding: '0.25rem 0.75rem',
-            	  borderRadius: '12px',
-            	  fontSize: '0.9rem',
-            	  fontWeight: 'bold'
-            	}}>
-            	  {enemyDrones.length}
-            	</span>
-            </div>
-            {lastUpdate.enemy && (
-            	<div style={{ fontSize: '0.75rem', opacity: 0.6, marginBottom: '0.75rem', textAlign: 'center' }}>
-            	  อัพเดทล่าสุด: {new Date(lastUpdate.enemy).toLocaleTimeString('th-TH')}
-            	</div>
-            )}
-            {enemyDrones.length === 0 ? (
-            	<div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6, fontSize: '0.9rem' }}>
-            	  ไม่พบโดรน
-            	  <div style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>
-            		{connectionStatus.enemy === 'connected' ? 'รอข้อมูลจากกล้อง...' : 'กำลังเชื่อมต่อ...'}
-            	  </div>
-            	</div>
-            ) : (
-            	enemyDrones.map(drone => (
-            	  <DroneCard
-            		key={drone.id}
-            		drone={drone}
-            		type="enemy"
-            		onClick={() => {
-            		  setSelectedDrone(drone);
-            		  if (map.current && mapLoaded) {
-            			map.current.flyTo({
-            			  center: [drone.lng, drone.lat],
-            			  zoom: 16,
-            			  duration: 1000
-            			});
-            		  }
-            		}}
-            		onImageClick={() => drone.imageUrl && setSelectedImage(drone.imageUrl)}
-            		getSizeLabel={getSizeLabel}
-            	  />
-            	))
-            )}
-          </div>
+					<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+						<span style={{
+						background: 'rgba(239, 68, 68, 0.3)',
+						padding: '0.25rem 0.75rem',
+						borderRadius: '12px',
+						fontSize: '0.9rem',
+						fontWeight: 'bold'
+						}}>
+						{enemyDrones.length}
+						</span>
+						{sectionsCollapsed.enemy ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
+					</div>
+        		  </div>
+				  {!sectionsCollapsed.enemy && (
+					<>
+						{lastUpdate.enemy && (
+							<div style={{ fontSize: '0.75rem', opacity: 0.6, marginBottom: '0.75rem', textAlign: 'center' }}>
+							อัพเดทล่าสุด: {new Date(lastUpdate.enemy).toLocaleTimeString('th-TH')}
+							</div>
+						)}
+						{enemyDrones.length === 0 ? (
+							<div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6, fontSize: '0.9rem' }}>
+							ไม่พบโดรน
+							<div style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>
+								{connectionStatus.enemy === 'connected' ? 'รอข้อมูลจากกล้อง...' : 'กำลังเชื่อมต่อ...'}
+							</div>
+							</div>
+						) : (
+							enemyDrones.map(drone => (
+							<DroneCard
+								key={drone.id}
+								drone={drone}
+								type="enemy"
+								onClick={() => {
+								setSelectedDrone(drone);
+								if (map.current && mapLoaded) {
+									map.current.flyTo({
+									center: [drone.lng, drone.lat],
+									zoom: 16,
+									duration: 1000
+									});
+								}
+								}}
+								onImageClick={() => drone.imageUrl && setSelectedImage(drone.imageUrl)}
+								getSizeLabel={getSizeLabel}
+							/>
+							))
+						)}
+					</>
+				  )}
+        		</div>
+        		)}
 
-          {/* Friendly Drones */}
-          <div>
-            <div style={{
+        		{/* Friendly Drones */}
+        		{(liveFilter === 'all' || liveFilter === 'friendly') && (
+        		<div>
+        		  <div 
+					onClick={() => setSectionsCollapsed(prev => ({ ...prev, friendly: !prev.friendly }))}
+					style={{
             	display: 'flex',
             	alignItems: 'center',
             	justifyContent: 'space-between',
-            	marginBottom: '1rem',
+            	marginBottom: sectionsCollapsed.friendly ? '0' : '1rem',
             	padding: '0.75rem',
             	background: 'rgba(34, 197, 94, 0.2)',
             	borderRadius: '8px',
-            	border: '1px solid rgba(34, 197, 94, 0.5)'
-            }}>
-            	<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            	border: '1px solid rgba(34, 197, 94, 0.5)',
+					cursor: 'pointer',
+					transition: 'margin-bottom 0.3s ease'
+        		  }}>
+        			<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             	  <Shield size={20} color="#22c55e" />
-            	  <h2 style={{ margin: 0, fontSize: '1.1rem' }}>
+        			  <h2 style={{ margin: 0, fontSize: '1.1rem' }}>
             		โดรนฝ่ายเรา
             	  </h2>
             	</div>
-            	<span style={{
-            	  background: 'rgba(34, 197, 94, 0.3)',
-            	  padding: '0.25rem 0.75rem',
-            	  borderRadius: '12px',
-            	  fontSize: '0.9rem',
-            	  fontWeight: 'bold'
-            	}}>
-            	  {friendlyDrones.length}
-            	</span>
-            </div>
-            {lastUpdate.friendly && (
-            	<div style={{ fontSize: '0.75rem', opacity: 0.6, marginBottom: '0.75rem', textAlign: 'center' }}>
-            	  อัพเดทล่าสุด: {new Date(lastUpdate.friendly).toLocaleTimeString('th-TH')}
-            	</div>
-            )}
-            {friendlyDrones.length === 0 ? (
-            	<div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6, fontSize: '0.9rem' }}>
-            	  ไม่พบโดรนฝ่ายเรา
-            	  <div style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>
-            		{connectionStatus.friendly === 'connected' ? 'รอข้อมูลจากกล้อง...' : 'กำลังเชื่อมต่อ...'}
-            	  </div>
-            	</div>
-            ) : (
-            	friendlyDrones.map(drone => (
-            	  <DroneCard
-            		key={drone.id}
-            		drone={drone}
-            		type="friendly"
-            		onClick={() => {
-            		  setSelectedDrone(drone);
-            		  if (map.current && mapLoaded) {
-            			map.current.flyTo({
-            			  center: [drone.lng, drone.lat],
-            			  zoom: 16,
-            			  duration: 1000
-            			});
-            		  }
-            		}}
-            		onImageClick={() => drone.imageUrl && setSelectedImage(drone.imageUrl)}
-            		getSizeLabel={getSizeLabel}
-            	  />
-            	))
-            )}
-          </div>
+					<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+						<span style={{
+						background: 'rgba(34, 197, 94, 0.3)',
+						padding: '0.25rem 0.75rem',
+						borderRadius: '12px',
+						fontSize: '0.9rem',
+						fontWeight: 'bold'
+						}}>
+						{friendlyDrones.length}
+						</span>
+						{sectionsCollapsed.friendly ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
+					</div>
+        		  </div>
+				  {!sectionsCollapsed.friendly && (
+					<>
+						{lastUpdate.friendly && (
+							<div style={{ fontSize: '0.75rem', opacity: 0.6, marginBottom: '0.75rem', textAlign: 'center' }}>
+							อัพเดทล่าสุด: {new Date(lastUpdate.friendly).toLocaleTimeString('th-TH')}
+							</div>
+						)}
+						{friendlyDrones.length === 0 ? (
+							<div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6, fontSize: '0.9rem' }}>
+							ไม่พบโดรนฝ่ายเรา
+							<div style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>
+								{connectionStatus.friendly === 'connected' ? 'รอข้อมูลจากกล้อง...' : 'กำลังเชื่อมต่อ...'}
+							</div>
+							</div>
+						) : (
+							friendlyDrones.map(drone => (
+							<DroneCard
+								key={drone.id}
+								drone={drone}
+								type="friendly"
+								onClick={() => {
+								setSelectedDrone(drone);
+								if (map.current && mapLoaded) {
+									map.current.flyTo({
+									center: [drone.lng, drone.lat],
+									zoom: 16,
+									duration: 1000
+									});
+								}
+								}}
+								onImageClick={() => drone.imageUrl && setSelectedImage(drone.imageUrl)}
+								getSizeLabel={getSizeLabel}
+							/>
+							))
+						)}
+					</>
+				  )}
+        		</div>
+        		)}
+
+        	{/* Detection History */}
+        	<div style={{ marginTop: '1.5rem' }}>
+        	  <div
+        		onClick={() => setSectionsCollapsed(prev => ({ ...prev, history: !prev.history }))}
+        		style={{
+        		  display: 'flex',
+        		  alignItems: 'center',
+        		  justifyContent: 'space-between',
+        		  marginBottom: sectionsCollapsed.history ? '0' : '1rem',
+        		  padding: '0.75rem',
+        		  background: 'rgba(99, 102, 241, 0.2)',
+        		  borderRadius: '8px',
+        		  border: '1px solid rgba(99, 102, 241, 0.5)',
+        		  cursor: 'pointer',
+        		  transition: 'margin-bottom 0.3s ease'
+        		}}
+        	  >
+        		<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        		  <History size={20} color="#818cf8" />
+        		  <h2 style={{ margin: 0, fontSize: '1.1rem' }}>ประวัติการตรวจจับ</h2>
+        		</div>
+        		<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        		  <span style={{
+        			background: 'rgba(99, 102, 241, 0.3)',
+        			padding: '0.25rem 0.75rem',
+        			borderRadius: '12px',
+        			fontSize: '0.9rem',
+        			fontWeight: 'bold'
+        		  }}>
+        			{filteredHistory.length}
+        		  </span>
+        		  {sectionsCollapsed.history ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
+        		</div>
+        	  </div>
+        	  {!sectionsCollapsed.history && (
+        		<div style={{ marginTop: '0rem' }}>
+        		  <div style={{
+        			display: 'block',
+        			alignItems: 'center',
+        			justifyContent: 'space-between',
+        			marginBottom: '1rem',
+        			padding: '0.75rem',
+        			background: 'rgba(99, 102, 241, 0.1)',
+        			borderRadius: '8px',
+        			border: '1px solid rgba(99, 102, 241, 0.3)'
+        		  }}>
+        			{/* Filter Buttons */}
+        			<div style={{ display: 'flex', gap: '0.5rem' }}>
+        			  {['all', 'enemy', 'friendly'].map(filter => (
+        				<button
+        				  key={filter}
+        				  onClick={(e) => {
+        					e.stopPropagation();
+        					setHistoryFilter(filter);
+        				  }}
+        				  style={{
+        					flex: 1,
+        					background: historyFilter === filter ? '#3b82f6' : 'rgba(255,255,255,0.1)',
+        					color: '#fff',
+        					border: '1px solid',
+        					borderColor: historyFilter === filter ? '#3b82f6' : 'rgba(255,255,255,0.2)',
+        					padding: '0.4rem 0.5rem',
+        					borderRadius: '6px',
+        					cursor: 'pointer',
+        					fontWeight: 'bold',
+        					fontSize: '0.8rem',
+        					transition: 'all 0.2s'
+        				  }}
+        				>
+        				  {filter === 'all' ? 'ทั้งหมด' : filter === 'enemy' ? 'ไม่ทราบที่มา' : 'ฝ่ายเรา'}
+        				</button>
+        			  ))}
+        			</div>
+        		  </div>
+        		  {filteredHistory.length === 0 ? (
+        			<div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6, fontSize: '0.9rem' }}>
+        			  {history.length === 0 ? 'ยังไม่มีประวัติการตรวจจับ' : 'ไม่พบข้อมูลตามตัวกรอง'}
+        			</div>
+        		  ) : (
+        			<div style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+        			  {filteredHistory.map((drone, index) => (
+        				<DroneHistoryCard
+        				  key={`${drone.id}-${index}`}
+        				  drone={drone}
+        				  isSelected={selectedDrone?.id === drone.id && selectedDrone?.timestamp === drone.timestamp}
+        				  onClick={(e) => {
+        					e.stopPropagation();
+        					setSelectedDrone(drone);
+        					if (map.current && mapLoaded) {
+        					  map.current.flyTo({
+        						center: [drone.lng, drone.lat],
+        						zoom: 16,
+        						duration: 1000
+        					  });
+        					}
+        				  }}
+        				/>
+        			  ))}
+        			</div>
+        		  )}
+        		</div>
+        	  )}
+        	</div>
+        </>
         </div>
 
         {/* Map */}
@@ -947,12 +1154,12 @@ const DroneDetectionDashboard = () => {
           	  position: 'absolute',
           	  top: '20px',
           	  right: '20px',
-          	  background: 'rgba(21, 27, 61, 0.98)',
-          	  padding: '1.5rem',
+          	  background: 'rgba(21, 27, 61, 0.95)', // ลดความทึบเล็กน้อย
+          	  padding: '1.25rem', // ลด Padding
           	  borderRadius: '12px',
-          	  minWidth: '350px',
-          	  maxWidth: '450px',
-          	  maxHeight: 'calc(100vh - 120px)',
+          	  minWidth: '320px',  // ลดความกว้างขั้นต่ำ
+          	  maxWidth: '380px',  // ลดความกว้างสูงสุด
+          	  maxHeight: 'calc(100vh - 140px)', // ปรับความสูงเผื่อ
           	  overflowY: 'auto',
           	  boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
           	  border: `2px solid ${selectedDrone.type === 'enemy' ? '#ef4444' : '#22c55e'}`,
@@ -962,7 +1169,7 @@ const DroneDetectionDashboard = () => {
           		<h3 style={{
           		  margin: 0,
           		  color: selectedDrone.type === 'enemy' ? '#ef4444' : '#22c55e',
-          		  fontSize: '1.2rem',
+          		  fontSize: '1.1rem', // ลดขนาดฟอนต์หัวข้อ
           		  fontWeight: 'bold'
           		}}>
           		  {selectedDrone.type === 'enemy' ? '⚠️ โดรนไม่ทราบที่มา' : '✅ โดรนฝ่ายเรา'}
@@ -1027,9 +1234,9 @@ const DroneDetectionDashboard = () => {
           		</div>
           	  )}
 
-          	  <div style={{ fontSize: '0.9rem', lineHeight: '2' }}>
-          		<div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '0.5rem' }}>
-          		  <div style={{ opacity: 0.7 }}>Object ID:</div>
+          	  <div style={{ fontSize: '0.85rem', lineHeight: '1.9' }}> 
+          		<div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: '0.4rem' }}>
+          		  <div style={{ opacity: 0.7 }}>Object ID:</div> 
           		  <div style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
           			{selectedDrone.obj_id}
           		  </div>
@@ -1286,5 +1493,47 @@ const DroneCard = ({ drone, type, onClick, onImageClick, getSizeLabel }) => {
     </div>
   );
 };
+
+const DroneHistoryCard = ({ drone, onClick, isSelected }) => {
+  const type = drone.type;
+  const color = type === 'enemy' ? '#ef4444' : '#22c55e';
+  const icon = type === 'enemy' ? '🛸' : '✈️';
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '1rem', 
+        background: isSelected ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+        padding: '0.75rem',
+        borderRadius: '6px',
+        marginBottom: '0.5rem',
+        cursor: 'pointer',
+        borderLeft: `4px solid ${color}`,
+        transition: 'background 0.2s ease'
+      }}
+      onMouseEnter={(e) => e.currentTarget.style.background = isSelected ? 'rgba(99, 102, 241, 0.25)' : 'rgba(255, 255, 255, 0.07)'}
+      onMouseLeave={(e) => e.currentTarget.style.background = isSelected ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.03)'}
+    >
+      <div style={{ fontSize: '1.5rem' }}>{icon}</div>
+      <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontWeight: 'bold', color: '#fff', fontFamily: 'monospace' }}>
+            ID: {drone.obj_id}
+          </span>
+          <span style={{ fontSize: '0.75rem', color: color, fontWeight: 'bold' }}>
+            {type === 'enemy' ? 'THREAT' : 'FRIENDLY'}
+          </span>
+        </div>
+        <div style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: '0.25rem' }}>
+        	{new Date(drone.timestamp).toLocaleDateString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 
 export default DroneDetectionDashboard;
