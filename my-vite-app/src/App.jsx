@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 // นำเข้า Components ที่สร้างใหม่
 import Login from './page/Login'; 
 import Dashboard from './page/Dashboard';
+import RedZone from './page/RedZone'; // 🚩 นำเข้าหน้า RedZone
 import './App.css'; // ใช้ CSS เดิม
 
 // Component สำหรับป้องกันเส้นทาง (Protected Route)
@@ -54,6 +55,16 @@ function App() {
           } 
         />
         
+        {/* 🚩 เพิ่มเส้นทางสำหรับหน้า RedZone */}
+        <Route 
+          path="/redzone"
+          element={
+            <ProtectedRoute isLoggedIn={isLoggedIn}>
+              <RedZone />
+            </ProtectedRoute>
+          }
+        />
+
         {/* 3. เส้นทางเริ่มต้น (Redirect ไป Login ถ้ายังไม่เข้าสู่ระบบ) */}
         <Route 
           path="/" 

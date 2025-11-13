@@ -25,6 +25,7 @@ const Login = ({ onLogin }) => { // <-- รับ props onLogin
       const data = await res.json();
 
       if (res.ok) {
+        localStorage.setItem("userId", data.userId); // 🚩 เก็บ userId ลง localStorage
         localStorage.setItem("token", data.token);
         onLogin(true); // <-- แจ้ง App.jsx ว่าล็อกอินสำเร็จ
         navigate("/dashboard"); // ไปหน้า dashboard

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { AlertTriangle, History, Shield, X, Camera, Maximize2, Layers, Wifi, List, ChevronUp, ChevronDown } from 'lucide-react';
+import { AlertTriangle, History, Shield, X, Camera, Maximize2, Layers, Wifi, List, ChevronUp, ChevronDown, MapPin, Siren } from 'lucide-react';
 import { useNavigate } from "react-router-dom";
 
 const DroneDetectionDashboard = () => {
@@ -14,15 +14,17 @@ const DroneDetectionDashboard = () => {
   const [is3D, setIs3D] = useState(false); // State สำหรับมุมมอง 3D
   const navigate = useNavigate();
   const [liveFilter, setLiveFilter] = useState('all'); // 'all', 'enemy', 'friendly'
+  const [redZones, setRedZones] = useState([]);
+  const [intrusionAlerts, setIntrusionAlerts] = useState([]);
   const [historyFilter, setHistoryFilter] = useState('all'); // 'all', 'enemy', 'friendly'
   const [sectionsCollapsed, setSectionsCollapsed] = useState({ enemy: false, friendly: false, history: false });
   const [trackedEnemyIds, setTrackedEnemyIds] = useState([]);
+  const [locationName, setLocationName] = useState('N/A'); // 🚩 State ใหม่สำหรับเก็บชื่อสถานที่
 
   const mapContainer = useRef(null);
   const map = useRef(null);
   const markersRef = useRef({ enemy: new Map(), friendly: new Map() });
-  const enemySocketRef = useRef(null);
-  const friendlySocketRef = useRef(null);
+  const socketRef = useRef(null); // 🚩 รวม Socket เป็นตัวเดียว
 
   const handleLogout = async () => {
     try {
@@ -70,14 +72,11 @@ const DroneDetectionDashboard = () => {
     socketScript.src = 'https://cdn.socket.io/4.5.4/socket.io.min.js';
     socketScript.async = true;
     socketScript.onload = () => initializeSocketConnections();
-    document.head.appendChild(socketScript);
+    document.head.appendChild(socketScript);    
 
     return () => {
-      if (enemySocketRef.current) {
-        enemySocketRef.current.disconnect();
-      }
-      if (friendlySocketRef.current) {
-        friendlySocketRef.current.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
       }
       if (map.current) {
         map.current.remove();
@@ -87,6 +86,20 @@ const DroneDetectionDashboard = () => {
 
   // โหลดข้อมูลเริ่มต้นจาก API
   useEffect(() => {
+    // 🚩 ย้ายการโหลดข้อมูล friendly มาตรงนี้ด้วย
+    const loadInitialFriendlyData = async () => {
+      try {
+        const response = await fetch('http://localhost:3000/api/recent/ours');
+        const result = await response.json();
+        if (result.success && result.data.length > 0) {
+          console.log('📦 Loaded initial friendly drones:', result.data.length);
+          result.data.forEach(data => handleFriendlyDroneData(data, false));
+        }
+      } catch (error) {
+        console.error('Error loading initial friendly data:', error);
+      }
+    };
+
     const loadInitialData = async () => {
       try {
         const response = await fetch('http://localhost:3000/api/recent/theirs');
@@ -97,10 +110,10 @@ const DroneDetectionDashboard = () => {
           const uniqueIds = [...new Set(result.data.map(d => d.drone_id))];
           setTrackedEnemyIds(uniqueIds);
           
-          if (enemySocketRef.current && connectionStatus.enemy === 'connected') {
+          if (socketRef.current && connectionStatus.enemy === 'connected') {
             uniqueIds.forEach(drone_id => {
               console.log(`🔔 Subscribing to drone: ${drone_id}`);
-              enemySocketRef.current.emit('subscribe_camera', { cam_id: drone_id });
+              socketRef.current.emit('subscribe_camera', { cam_id: drone_id });
             });
           }
           
@@ -108,7 +121,7 @@ const DroneDetectionDashboard = () => {
           const initialDrones = result.data.map(data => {
             const imageUrl = data.image_path ? `http://localhost:3000${data.image_path}` : null;
             return {
-              id: `${data.drone_id}-${data.id}`,
+              id: data.drone_id, // ใช้ drone_id เป็น id หลัก
               obj_id: data.id,
               type: 'enemy',
               lat: parseFloat(data.latitude),
@@ -120,8 +133,8 @@ const DroneDetectionDashboard = () => {
               droneType: 'drone',
               timestamp: data.detected_at,
               camera: {
-                name: `กล้อง ${data.drone_id}`,
-                location: 'Bangkok Area',
+                name: `กล้อง ทีมสวนและบ้าน`,
+                location: 'นครนายก',
                 Institute: 'Local Detection System'
               },
               imageUrl: imageUrl,
@@ -133,8 +146,15 @@ const DroneDetectionDashboard = () => {
             };
           });
           // 🚩 อัปเดต State เพียงครั้งเดียว
-          setEnemyDrones(initialDrones);
-          
+          // ใช้ Map เพื่อให้แน่ใจว่ามี drone_id ที่ไม่ซ้ำกัน และเก็บข้อมูลล่าสุดเสมอ
+          const latestDronesMap = new Map();
+          initialDrones.forEach(drone => {
+            // จัดเรียงตาม timestamp แล้วเก็บตัวล่าสุด
+            if (!latestDronesMap.has(drone.id) || new Date(drone.timestamp) > new Date(latestDronesMap.get(drone.id).timestamp)) {
+              latestDronesMap.set(drone.id, drone);
+            }
+          });
+          setEnemyDrones(Array.from(latestDronesMap.values()));
           // 🚩 ลบการเรียก `handleLocalDetectionData` ใน loop ทิ้ง
           // result.data.forEach(data => handleLocalDetectionData(data, 'enemy', false));
         }
@@ -145,15 +165,107 @@ const DroneDetectionDashboard = () => {
 
     if (mapLoaded) {
       loadInitialData();
+      loadInitialFriendlyData(); // 🚩 โหลดข้อมูลโดรนฝ่ายเราเริ่มต้น
+      fetchRedZones();
     }
   }, [mapLoaded, connectionStatus.enemy]);
 
+  // Fetch Red Zones
+  const fetchRedZones = async () => {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        const res = await fetch('http://localhost:3000/api/red-zone', {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (data.success) {
+            console.log(`🗺️ Dashboard: Fetched ${data.data.length} red zones.`);
+            setRedZones(data.data);
+        }
+    } catch (err) {
+        console.error("Failed to fetch red zones:", err);
+    }
+  };
+
+  // Haversine distance formula
+  const getDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3; // metres
+    const \u03c61 = lat1 * Math.PI/180; // \u03c6, \u03bb in radians
+    const \u03c62 = lat2 * Math.PI/180;
+    const \u0394\u03c6 = (lat2-lat1) * Math.PI/180;
+    const \u0394\u03bb = (lon2-lon1) * Math.PI/180;
+
+    const a = Math.sin(\u0394\u03c6/2) * Math.sin(\u0394\u03c6/2) +
+              Math.cos(\u03c61) * Math.cos(\u03c62) *
+              Math.sin(\u0394\u03bb/2) * Math.sin(\u0394\u03bb/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c; // in metres
+  }
+
+  const [dronesInZone, setDronesInZone] = useState(new Set());
+
+  // Effect for continuous intrusion alerts every 5 seconds
+  useEffect(() => {
+    const alertInterval = setInterval(() => {
+      const allDrones = [...enemyDrones, ...friendlyDrones];
+      let newAlerts = [];
+
+      allDrones.forEach(drone => {
+        redZones.forEach(zone => {
+          const distance = getDistance(drone.lat, drone.lng, zone.center_lat, zone.center_lng);
+          if (distance <= zone.radius_meters) {
+            const droneTypeText = drone.type === 'enemy' ? 'ไม่ทราบที่มา' : 'ฝ่ายเรา';
+            const alertId = `${drone.obj_id}-${zone.id}-${Date.now()}`;
+            const newAlert = {
+              id: alertId,
+              message: `โดรน${droneTypeText} ID: ${drone.obj_id} บุกรุกพื้นที่สีแดง "${zone.name}"!`,
+              droneType: drone.type
+            };
+            newAlerts.push(newAlert);
+            console.warn(`🚨 RE-ALERT: Drone ${drone.obj_id} is still in Red Zone "${zone.name}"`);
+          }
+        });
+      });
+
+      if (newAlerts.length > 0) {
+        setIntrusionAlerts(prev => [...newAlerts, ...prev.slice(0, 5 - newAlerts.length)]);
+        newAlerts.forEach(alert => {
+            setTimeout(() => setIntrusionAlerts(prev => prev.filter(a => a.id !== alert.id)), 10000);
+        });
+      }
+
+    }, 5000); // Repeat every 5 seconds
+
+    return () => clearInterval(alertInterval);
+  }, [enemyDrones, friendlyDrones, redZones]);
+
+  const checkIntrusion = (drone) => {
+    if (!redZones.length) return;
+  
+    redZones.forEach(zone => {
+        const distance = getDistance(drone.lat, drone.lng, zone.center_lat, zone.center_lng);
+        const droneZoneId = `${drone.obj_id}-${zone.id}`;
+  
+        if (distance <= zone.radius_meters) {
+            // This function is now just for initial detection logging and state management
+            // The continuous alert is handled by the useEffect interval
+            console.log(`✅ Drone ${drone.obj_id} is inside Red Zone "${zone.name}"`);
+        } else {
+            if (dronesInZone.has(droneZoneId)) {
+                console.log(`✅ Drone ${drone.obj_id} has left Red Zone "${zone.name}"`);
+            }
+        }
+    });
+  };
+
   // Subscribe เมื่อ Socket เชื่อมต่อหรือ trackedEnemyIds เปลี่ยน
   useEffect(() => {
-    if (enemySocketRef.current && connectionStatus.enemy === 'connected' && trackedEnemyIds.length > 0) {
+    if (socketRef.current && connectionStatus.enemy === 'connected' && trackedEnemyIds.length > 0) {
       console.log('🔄 Subscribing to', trackedEnemyIds.length, 'drone IDs...');
       trackedEnemyIds.forEach(cam_id => {
-        enemySocketRef.current.emit('subscribe_camera', { cam_id });
+        socketRef.current.emit('subscribe_camera', { cam_id });
       });
     }
   }, [connectionStatus.enemy, trackedEnemyIds]);
@@ -195,6 +307,46 @@ const DroneDetectionDashboard = () => {
       }
     }
   }, [friendlyDrones, mapLoaded, liveFilter, selectedDrone]);
+
+  // Effect for rendering Red Zones
+  useEffect(() => {
+    if (mapLoaded && map.current && redZones.length > 0) {
+        const sourceId = 'dashboard-red-zones-source';
+        const layerId = 'dashboard-red-zones-layer';
+
+        const source = map.current.getSource(sourceId);
+        const geoJSON = {
+            type: 'FeatureCollection',
+            features: redZones.map(zone => ({
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: [zone.center_lng, zone.center_lat]
+                },
+                properties: { radius: zone.radius_meters }
+            }))
+        };
+
+        if (source) {
+            source.setData(geoJSON);
+        } else {
+            map.current.addSource(sourceId, { type: 'geojson', data: geoJSON });
+            map.current.addLayer({
+                id: layerId,
+                type: 'circle',
+                source: sourceId,
+                paint: {
+                    'circle-radius': ['get', 'radius'],
+                    'circle-color': '#ef4444',
+                    'circle-opacity': 0.3,
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ef4444',
+                    'circle-stroke-opacity': 0.8
+                }
+            });
+        }
+    }
+  }, [redZones, mapLoaded]);
 
   // Effect สำหรับจัดการมุมมอง 3D
   useEffect(() => {
@@ -245,6 +397,42 @@ const DroneDetectionDashboard = () => {
     // Dependency array: ทำงานเมื่อรายการโดรนหรือโดรนที่เลือกเปลี่ยนไป
   }, [enemyDrones, friendlyDrones, selectedDrone?.id]);
 
+  // 🚩 Effect ใหม่: แปลงพิกัดเป็นชื่อสถานที่เมื่อเลือกโดรน
+  useEffect(() => {
+    if (selectedDrone?.lat && selectedDrone?.lng) {
+      setLocationName('กำลังค้นหา...'); // แสดงสถานะกำลังโหลด
+
+      const fetchLocationName = async () => {
+        try {
+          const { lng, lat } = selectedDrone;
+          const accessToken = 'pk.eyJ1IjoiY2hhdGNoYWxlcm0iLCJhIjoiY21nZnpiYzU3MGRzdTJrczlkd3RxamN4YyJ9.k288gnCNLdLgczawiB79gQ';
+          // ใช้ endpoint ของ Mapbox Geocoding API
+          const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=region,province&access_token=${accessToken}`;
+          
+          const response = await fetch(url);
+          const data = await response.json();
+
+          if (data.features && data.features.length > 0) {
+            // Mapbox จะส่งข้อมูลสถานที่มาใน context, เราจะหาอันที่เป็น region (จังหวัด)
+            const provinceFeature = data.features.find(f => f.id.startsWith('region'));
+            if (provinceFeature) {
+              setLocationName(provinceFeature.text);
+            } else {
+              // ถ้าไม่เจอจังหวัด ให้ใช้ชื่อสถานที่ที่ใหญ่ที่สุดที่หาได้
+              setLocationName(data.features[0].place_name.split(',').pop().trim());
+            }
+          } else {
+            setLocationName('นครนายก');
+          }
+        } catch (error) {
+          console.error('Failed to fetch location name:', error);
+          setLocationName('ข้อผิดพลาด');
+        }
+      };
+      fetchLocationName();
+    }
+  }, [selectedDrone?.lat, selectedDrone?.lng]); // ทำงานเมื่อพิกัดของโดรนที่เลือกเปลี่ยนไป
+
   const initializeMap = () => {
     if (!window.mapboxgl || map.current) return;
 
@@ -268,67 +456,49 @@ const DroneDetectionDashboard = () => {
   const initializeSocketConnections = () => {
     if (!window.io) return;
 
-    // Connect to enemy camera (ใช้ backend ของตัวเอง)
-    enemySocketRef.current = window.io('http://localhost:3000', {
+    // 🚩 Connect to our backend
+    socketRef.current = window.io('http://localhost:3000', {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionAttempts: 10
     });
 
-    enemySocketRef.current.on('connect', () => {
-        console.log('✅ Connected to enemy camera (local backend)');
-        setConnectionStatus(prev => ({ ...prev, enemy: 'connected' }));
+    const socket = socketRef.current;
+
+    socket.on('connect', () => {
+        console.log('✅ Connected to backend socket server');
+        // 🚩 ตั้งสถานะการเชื่อมต่อทั้งสองระบบเป็น 'connected'
+        setConnectionStatus({ enemy: 'connected', friendly: 'connected' });
     });
 
-    enemySocketRef.current.on('drone-theirs-detected', (data) => {
+    socket.on('disconnect', () => {
+      console.log('❌ Disconnected from backend socket server');
+      // 🚩 ตั้งสถานะการเชื่อมต่อทั้งสองระบบเป็น 'disconnected'
+      setConnectionStatus({ enemy: 'disconnected', friendly: 'disconnected' });
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('Backend connection error:', error);
+      // 🚩 ตั้งสถานะการเชื่อมต่อทั้งสองระบบเป็น 'error'
+      setConnectionStatus({ enemy: 'error', friendly: 'error' });
+    });
+
+    // --- Enemy Drone Listeners ---
+    socket.on('drone-theirs-detected', (data) => {
       console.log('📡 Enemy detection received (local backend):', data);
       handleLocalDetectionData(data, 'enemy', true);
     });
 
-    enemySocketRef.current.on('disconnect', () => {
-      console.log('❌ Disconnected from enemy camera');
-      setConnectionStatus(prev => ({ ...prev, enemy: 'disconnected' }));
-    });
-    enemySocketRef.current.on('drone-theirs-updated', (data) => {
+    socket.on('drone-theirs-updated', (data) => {
       console.log('🔄 Enemy update received (local backend):', data);
       handleLocalDetectionData(data, 'enemy', true);
     });
 
-    enemySocketRef.current.on('connect_error', (error) => {
-      console.error('Enemy connection error:', error);
-      setConnectionStatus(prev => ({ ...prev, enemy: 'error' }));
-    });
-
-    // Connect to friendly camera
-    friendlySocketRef.current = window.io('https://tesa-api.crma.dev', {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 10
-    });
-
-    friendlySocketRef.current.on('connect', () => {
-      console.log('✅ Connected to friendly camera');
-      setConnectionStatus(prev => ({ ...prev, friendly: 'connected' }));
-      friendlySocketRef.current.emit('subscribe_camera', {
-        cam_id: 'f1bbc93d-5998-4f19-9c4a-7fbceef7044e'
-      });
-    });
-
-    friendlySocketRef.current.on('object_detection', (data) => {
-      console.log('📡 Friendly detection received:', data);
-      handleDetectionData(data, 'friendly');
-    });
-
-    friendlySocketRef.current.on('disconnect', () => {
-      console.log('❌ Disconnected from friendly camera');
-      setConnectionStatus(prev => ({ ...prev, friendly: 'disconnected' }));
-    });
-
-    friendlySocketRef.current.on('connect_error', (error) => {
-      console.error('Friendly connection error:', error);
-      setConnectionStatus(prev => ({ ...prev, friendly: 'error' }));
+    // --- Friendly Drone Listener (from MQTT via backend) ---
+    socket.on('drone-ours-update', (data) => {
+      console.log('📡 Friendly drone update received (from MQTT):', data);
+      handleFriendlyDroneData(data, true);
     });
   };
 
@@ -343,8 +513,8 @@ const DroneDetectionDashboard = () => {
     const imageUrl = data.image_path ? `http://localhost:3000${data.image_path}` : null;
 
     const drone = {
-      id: `${data.drone_id}-${data.id}`,
-      obj_id: data.id, // <-- ใช้ data.id ถูกต้องแล้ว
+      id: data.drone_id, // 🚩 ใช้ drone_id เป็น ID หลักสำหรับ state
+      obj_id: data.id, 
       type: type,
       lat: parseFloat(data.latitude),
       lng: parseFloat(data.longitude),
@@ -355,7 +525,7 @@ const DroneDetectionDashboard = () => {
       droneType: 'drone',
       timestamp: data.detected_at,
       camera: {
-        name: `กล้อง ${data.drone_id}`,
+        name: `กล้อง ทีมสวนและบ้าน`,
         location: 'Bangkok Area',
         Institute: 'Local Detection System'
       },
@@ -370,12 +540,21 @@ const DroneDetectionDashboard = () => {
     // 🚩 เพิ่มข้อมูลเข้า History (เก็บสูงสุด 50 รายการล่าสุด)
     setHistory(prevHistory => [drone, ...prevHistory].slice(0, 50));
 
+    // Check for intrusion
+    checkIntrusion(drone);
+
     // 🚩 อัปเดต State โดยใช้ functional update form
     // 🚩 (ลบ if(mapLoaded) และ if(!mapLoaded) ทิ้ง)
     setEnemyDrones(prevDrones => {
-      // อัพเดทหรือเพิ่มโดรน
-      const filtered = prevDrones.filter(d => d.obj_id !== drone.obj_id);
-      return [...filtered, drone];
+      const existingDroneIndex = prevDrones.findIndex(d => d.id === drone.id);
+      if (existingDroneIndex !== -1) {
+        // ถ้าเจอโดรนเดิม (id เดียวกัน) ให้อัปเดตข้อมูล
+        const updatedDrones = [...prevDrones];
+        updatedDrones[existingDroneIndex] = drone;
+        return updatedDrones;
+      }
+      // ถ้าเป็นโดรนใหม่ ให้เพิ่มเข้าไป
+      return [...prevDrones, drone];
     });
 
     // 🚩 [แก้ไข] ตรวจสอบและเพิ่ม drone_id ใหม่เข้าไปใน state ที่ใช้ subscribe
@@ -388,36 +567,44 @@ const DroneDetectionDashboard = () => {
     });
   };
 
-  // 🚩 4. แก้ไข Handle data from TESA API (friendly drones)
-  const handleDetectionData = (data, type) => {
-    if (!data || !data.objects || data.objects.length === 0) return;
+  // 🚩 4. สร้างฟังก์ชันใหม่สำหรับข้อมูลโดรนฝ่ายเรา
+  const handleFriendlyDroneData = (data, updateTimestamp = true) => {
+    if (!data) return;
 
-    setLastUpdate(prev => ({ ...prev, [type]: new Date().toISOString() }));
+    if (updateTimestamp) {
+      setLastUpdate(prev => ({ ...prev, friendly: new Date().toISOString() }));
+    }
 
-    const imageUrl = data.image ? `https://tesa-api.crma.dev${data.image.path}` : null;
-
-    const drones = data.objects.map(obj => ({
-      id: `${data.cam_id}-${obj.obj_id}`,
-      obj_id: obj.obj_id,
-      type: type,
-      lat: obj.lat,
-      lng: obj.lng,
-      objective: obj.objective || 'unknown',
-      size: obj.size || 'unknown',
-      droneType: obj.type || 'drone',
-      timestamp: data.timestamp,
-      camera: data.camera,
-      imageUrl: imageUrl,
-      cam_id: data.cam_id
-    }));
+    const drone = {
+      id: data.drone_id,
+      obj_id: data.drone_id, // ใช้ drone_id เป็น obj_id ไปก่อน
+      type: 'friendly',
+      lat: parseFloat(data.lat || data.latitude),
+      lng: parseFloat(data.lng || data.longitude),
+      altitude: parseFloat(data.altitude),
+      objective: 'patrol',
+      size: 'medium',
+      droneType: 'fixed-wing',
+      timestamp: data.detected_at,
+      camera: { name: 'Onboard GPS', location: 'นครนายก', Institute: 'มหาวิทยาลัยมหิดล' }
+    };
 
     // 🚩 เพิ่มข้อมูลเข้า History (เก็บสูงสุด 50 รายการล่าสุด)
-    setHistory(prevHistory => [...drones, ...prevHistory].slice(0, 50));
+    setHistory(prevHistory => [drone, ...prevHistory].slice(0, 50));
+    
+    // Check for intrusion for each friendly drone
+    checkIntrusion(drone);
 
     // 🚩 อัปเดต State เท่านั้น
-    setFriendlyDrones(drones);
-
-    // 🚩 (ลบ if(mapLoaded) และ else (setPendingDrones) ทิ้ง)
+    setFriendlyDrones(prevDrones => {
+      const existingIndex = prevDrones.findIndex(d => d.id === drone.id);
+      if (existingIndex !== -1) {
+        const updatedDrones = [...prevDrones];
+        updatedDrones[existingIndex] = drone;
+        return updatedDrones;
+      }
+      return [...prevDrones, drone];
+    });
   };
 
   const updateMarkers = (drones, type, append = false) => {
@@ -725,6 +912,28 @@ const DroneDetectionDashboard = () => {
           </div>
         </div>
 
+        {/* Intrusion Alerts */}
+        <div style={{ position: 'absolute', top: '100px', left: '50%', transform: 'translateX(-50%)', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {intrusionAlerts.map(alert => (
+                <div key={alert.id} style={{
+                    background: 'linear-gradient(135deg, #b91c1c, #ef4444)',
+                    color: 'white',
+                    padding: '1rem 1.5rem',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 15px rgba(239, 68, 68, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '1rem',
+                    animation: 'fade-in-down 0.5s ease-out forwards'
+                }}>
+                    <Siren size={24} />
+                    <span style={{ fontWeight: 'bold' }}>
+                        {alert.message}
+                    </span>
+                </div>
+            ))}
+        </div>
+
         {/* Live Filter Toggles */}
         <div style={{
         	display: 'flex',
@@ -768,6 +977,26 @@ const DroneDetectionDashboard = () => {
         		</button>
         	))}
         </div>
+
+        {/* Red Zone Button */}
+        <button
+        	onClick={() => navigate('/redzone')}
+        	style={{
+        		background: 'rgba(239, 68, 68, 0.8)',
+        		color: '#fff',
+        		border: '1px solid #ef4444',
+        		padding: '0.5rem 1rem',
+        		borderRadius: '6px',
+        		cursor: 'pointer',
+        		fontWeight: 'bold',
+        		display: 'flex', alignItems: 'center', gap: '0.5rem',
+        		transition: 'background 0.2s'
+        	}}
+        	onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(220, 38, 38, 1)'}
+        	onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.8)'}
+        >
+        	<MapPin size={16} /> จัดการพื้นที่สีแดง
+        </button>
 
         <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1236,63 +1465,73 @@ const DroneDetectionDashboard = () => {
 
           	  <div style={{ fontSize: '0.85rem', lineHeight: '1.9' }}> 
           		<div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: '0.4rem' }}>
-          		  <div style={{ opacity: 0.7 }}>Object ID:</div> 
+          		  <div style={{ opacity: 0.7 }}>Object ID:</div>
           		  <div style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
           			{selectedDrone.obj_id}
           		  </div>
 
           		  {selectedDrone.confidence && (
           			<>
-          			  <div style={{ opacity: 0.7 }}>Confidence:</div>
+          			  <div style={{ opacity: 0.7 }}>Confidence:</div> 
           			  <div style={{ fontWeight: 'bold', color: selectedDrone.confidence > 0.8 ? '#22c55e' : '#ffaa00' }}>
           				{(selectedDrone.confidence * 100).toFixed(1)}%
           			  </div>
           			</>
           		  )}
 
-          		  {selectedDrone.altitude && (
+          		  {selectedDrone.altitude !== undefined && (
           			<>
           			  <div style={{ opacity: 0.7 }}>ความสูง:</div>
           			  <div>{selectedDrone.altitude.toFixed(1)} ม.</div>
           			</>
           		  )}
 
-          		  {selectedDrone.weather && (
+          		  {selectedDrone.weather !== undefined && (
           			<>
           			  <div style={{ opacity: 0.7 }}>สภาพอากาศ:</div>
           			  <div style={{ textTransform: 'capitalize' }}>{selectedDrone.weather}</div>
           			</>
           		  )}
 
-          		  {selectedDrone.dimensions && (
+          		  {selectedDrone.dimensions !== undefined && (
           			<>
           			  <div style={{ opacity: 0.7 }}>ขนาดตรวจจับ:</div>
           			  <div>{selectedDrone.dimensions.width.toFixed(2)} × {selectedDrone.dimensions.height.toFixed(2)} m</div>
           			</>
           		  )}
 
-          		  <div style={{ opacity: 0.7 }}>ขนาดโดรน:</div>
-          		  <div style={{ fontWeight: 'bold' }}>{getSizeLabel(selectedDrone.size)}</div>
+          		  {selectedDrone.objective !== undefined && (
+          			<>
+          			  <div style={{ opacity: 0.7 }}>วัตถุประสงค์:</div>
+          			  <div style={{
+          				color: selectedDrone.objective === 'unknown' ? '#ffaa00' : '#22c55e',
+          				fontWeight: 'bold'
+          			  }}>
+          				{selectedDrone.objective === 'unknown' ? '⚠️ ไม่ทราบ' : selectedDrone.objective}
+          			  </div>
+          			</>
+          		  )}
 
-          		  <div style={{ opacity: 0.7 }}>วัตถุประสงค์:</div>
-          		  <div style={{
-          			color: selectedDrone.objective === 'unknown' ? '#ffaa00' : '#22c55e',
-          			fontWeight: 'bold'
-          		  }}>
-          			{selectedDrone.objective === 'unknown' ? '⚠️ ไม่ทราบ' : selectedDrone.objective}
-          		  </div>
+          		  {selectedDrone.lat !== undefined && (
+          			<>
+          			  <div style={{ opacity: 0.7 }}>ละติจูด:</div>
+          			  <div>{selectedDrone.lat.toFixed(6)}°</div>
+          			</>
+          		  )}
 
-          		  <div style={{ opacity: 0.7 }}>ละติจูด:</div>
-          		  <div>{selectedDrone.lat.toFixed(6)}°</div>
-
-          		  <div style={{ opacity: 0.7 }}>ลองจิจูด:</div>
-          		  <div>{selectedDrone.lng.toFixed(6)}°</div>
+          		  {selectedDrone.lng !== undefined && (
+          			<>
+          			  <div style={{ opacity: 0.7 }}>ลองจิจูด:</div>
+          			  <div>{selectedDrone.lng.toFixed(6)}°</div>
+          			</>
+          		  )}
 
           		  <div style={{ opacity: 0.7 }}>กล้อง:</div>
           		  <div>{selectedDrone.camera?.name || 'N/A'}</div>
 
-          		  <div style={{ opacity: 0.7 }}>สถานที่:</div>
-          		  <div>{selectedDrone.camera?.location || 'N/A'}</div>
+
+          		  <div style={{ opacity: 0.7 }}>จังหวัด:</div>
+          		  <div>{locationName}</div>
 
           		  <div style={{ opacity: 0.7 }}>หน่วยงาน:</div>
           		  <div>{selectedDrone.camera?.Institute || 'N/A'}</div>
@@ -1376,6 +1615,16 @@ const DroneDetectionDashboard = () => {
         .drone-marker .marker-content {
           pointer-events: none;
         }
+        @keyframes fade-in-down {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
       `}</style>
     </div>
   );
@@ -1459,9 +1708,6 @@ const DroneCard = ({ drone, type, onClick, onImageClick, getSizeLabel }) => {
     	  </div>
     	)}
     	<div style={{ marginBottom: '0.25rem' }}>
-    	  <strong>ขนาด:</strong> {getSizeLabel(drone.size)}
-    	</div>
-    	<div style={{ marginBottom: '0.25rem' }}>
     	  <strong>📍 ตำแหน่ง:</strong> {drone.lat.toFixed(4)}, {drone.lng.toFixed(4)}
     	</div>
     	{drone.altitude && (
@@ -1484,7 +1730,7 @@ const DroneCard = ({ drone, type, onClick, onImageClick, getSizeLabel }) => {
     	  </span>
     	</div>
     	<div style={{ marginBottom: '0.25rem' }}>
-    	  <strong>📹 กล้อง:</strong> {drone.camera?.name || 'N/A'}
+    	  <strong>📹 กล้อง:</strong> {'ทีมสวนและบ้าน'}
     	</div>
     	<div style={{ opacity: 0.7, fontSize: '0.75rem' }}>
     	  🕐 {new Date(drone.timestamp).toLocaleString('th-TH')}
