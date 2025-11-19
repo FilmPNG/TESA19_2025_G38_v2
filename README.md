@@ -24,7 +24,7 @@ https://github.com/FilmPNG/TESA19_2025_G38_v2
 
 ### Backend
 - Node.js + Express
-- MQTT / Socket.io (ถ้ามีใช้งาน)
+- MQTT / Socket.io
 - MySQL
 
 ### Tools & Environment
