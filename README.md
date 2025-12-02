@@ -35,20 +35,30 @@ https://github.com/FilmPNG/TESA19_2025_G38_v2
 
 ## วิธีการรันระบบ
 
-### 1) รัน Docker Services
+### 1) เพิ่ม .env file
+เพิ่ม .env ไว้ที่ root ของโปรเจค
+```
+PORT=3000
+MYSQL_ROOT_PASSWORD=root1234
+MYSQL_DATABASE=mydb
+MYSQL_USER=myuser
+MYSQL_PASSWORD=mypass
+```
+
+### 2) รัน Docker Services
 ให้อยู่ในระดับเดียวกับไฟล์ `docker-compose.yml` แล้วพิมพ์:
 ```bash
 docker compose up --build
 ```
 
-### 2) รัน Frontend (Vite)
+### 3) รัน Frontend (Vite)
 เปิด Terminal ใหม่แล้วพิมพ์:
 ```bash
 cd my-vite-app
 npm run dev
 ```
 
-### 3) เปิดเว็บเบราว์เซอร์แล้วเข้า:
+### 4) เปิดเว็บเบราว์เซอร์แล้วเข้า:
 - Frontend → http://localhost:5173
 - Backend Server → http://localhost:3000
 - phpMyAdmin → http://localhost:8080
